@@ -548,3 +548,114 @@ sock_bind_wild将通配地址和一个临时端口绑定到一个套接字。soc
 sock_get_port只返回端口号。sock_ntop_host把一个套接字地址结构中的主机部分转换成表达格式。sock_set_addr把一个套接字地址结构中的地址部分置为ptr指针所指的值；sock_set_port则只设置一个套接字地址结构的端口号部分。sock_set_wild把一个套接字地址结构中的地址部分设置为通配地址。跟本书所有函数一样，我们也为那些返回值不为void的上述函数提供了包裹函数，它们的名字为s开头，我们的程序通常调用这些包裹函数。
 
 ## 3.9 readn、writen和readline函数
+
+字节流套接字（例如TCP套接字）上的read和write函数所表现的行为不同于通常的文件I/O。字节流套接字上调用read或write输入或输出的字节数可能比请求的数量少，然而这不是出错的状态。这个现象的原因在于内核中用于套接字的缓冲区可能已经达到了极限。此时所需要的是调用者在此调用read或write函数，以输入或输出剩余的字节。有些版本的Unix在往一个管道中写多余4096字节的数据时也会表现这样的行为。这个现象在read一个字节流套接字时很常见，但是在write一个字节流套接字时只能在改套接字为非阻塞的前提下才能出现。尽管如此，为预防万一，不让实现返回一个不足的字节计数值，我们总是改为调用writen函数来取代write函数。
+
+我们提供的以下3个函数是每当我们读或写一个字节流套接字时总要使用的函数。
+
+```
+#include "unp.h"
+
+ssize_t readn(int fileds, void *buff, size_t nbytes);
+
+ssize_t written(int fileds, const void *buff, size_t nbytes);
+
+ssize_t readline(int fileds, void *buff, size_t maxlen);
+```
+
+图3-15给出了readn函数，图3-16给出了writen函数，图3-17给出了readline函数。
+
+```
+#include "unp.h"
+
+ssize_t readn(int fd, void *vptr, size_t n) /* Read "n" bytes from a descriptor. */
+{
+	ssize_t nleft;
+	ssize_t nread;
+	char *ptr;
+	ptr = vptr;
+	nleft = n;
+	while (nleft > 0) {
+		if ((nread = read(fd, ptr, nleft)) < 0) {
+			if (errno == EINTR)
+				nread = 0;	/* and call read() again */
+			else
+				return -1;
+		} else if (nread == 0)
+				break; /* EOF */
+		nleft -= nread;
+		ptr += nread;
+	}
+	return (n - nleft);		/* return >= 0 */
+}
+
+图3-15 readn函数：从一个描述读n字节
+```
+
+```
+#include "unp.h"
+
+ssize_t writen(int fd, const void *vptr, size_t n) /* Write "n" bytes to a descriptor. */
+{
+	size_t nleft;
+	ssize_t nwritten;
+	const char *ptr;
+
+	ptr = vptr;
+	nleft = n;
+	while(nleft > 0) {
+		if ((nwritten = write(fd, ptr, nleft)) <= 0) {
+			if (nwritten < 0 && errno == EINTR)
+				nwritten = 0; /* and call write() again */
+			else
+				return -1; /* error */
+		}
+		nleft -= nwritten;
+		ptr += nwritten;
+	}
+	return n;
+}
+
+图3-16 writen函数： 往一个描述符写n字符
+```
+
+
+```
+#include "unp.h"
+
+/* PAINFULL SLOW VERSION -- example only */
+
+ssize_t readline(int fd, void *vptr, size_t maxlen)
+{
+	ssize_t n, rc;
+	char c, *ptr;
+	ptr = vptr;
+	for (n = 1; n < maxlen; n++) {
+	again:
+		if ((rc = read(fd, &c, 1)) == 1) {
+			*ptr++ = c;
+			if (c == '\n')
+				break;		/* newline is stored, like fgets() */
+		} else if (rc == 0) {
+			*ptr = 0;
+			return n - 1;	/* EOF, n - 1 bytes were read */
+		} else {
+			if (errno == EINTR)
+				goto again;
+			return -1;		/* error, errno set by read() */
+		}
+	}
+	*ptr = 0;
+	return n;		/* null terminate like fgets() */
+}
+
+图3-17 readline函数：从一个描述符读文本行，一次1个字节
+```
+
+从上述三个函数查找EINTR错误（表示系统调用一个捕获的信号中断，我们将在5.9节中更详细地讨论），如果发生错误则继续进行读或者写。既然这些函数的作用是避免让调用这来处理不足的字节计数值，那么我们就地处理该错误，而不是强迫调用者在此调用readn或writen函数。
+
+在14.3节 我们会提到，MSG_WAITALL标志可以随recv函数一起使用来取代独立的readn函数。
+
+注意，这个readline函数每读一个字节的数据就调用一次系统的read函数。这是非常低效率的，为此我们特意在代码中注明“极端的慢”。当面临某个套接字读入文本行这一需求时，改用标准I/O函数库（称为stdio）相当诱人。我们将在14.8节中详细讨论这种方法，不过预先指出这个种危险的方法。解决本性能的问题的stdio缓存机制却引发许多后勤问题，可能导致在应用程序中存在相当隐蔽的缺陷。究其原因在于stdio缓冲区的状态是不可见的。为便于深入解释，让我们考虑客户端和服务器之间的一个基于文本行的协议，而使用该协议的多个客户程序和服务器程序可能是在一段时间内先后实现的（这种情况其实相当普遍，举例来说，按照HTTP规范独立编写的Web浏览器程序和Web服务器程序就相当之多）。良好的防御型编程(defensive programming)技术要求这些程序不仅能够期望他们对端程序也遵循相同的网络协议，而且能够检查出未预期的网络数据传送并加以修正（恶意企图自然也被检查出来），这样使得网络应用能够从存在问题的网络数据传输中恢复，可能的话还会继续工作。为了提升性能而使用stido来缓存数据违背了这些目标，因为这样的应用进程在任何时刻都没有办法辨别stdio缓冲区是否持有未预期的数据。
+
+
