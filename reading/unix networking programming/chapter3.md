@@ -658,4 +658,63 @@ ssize_t readline(int fd, void *vptr, size_t maxlen)
 
 注意，这个readline函数每读一个字节的数据就调用一次系统的read函数。这是非常低效率的，为此我们特意在代码中注明“极端的慢”。当面临某个套接字读入文本行这一需求时，改用标准I/O函数库（称为stdio）相当诱人。我们将在14.8节中详细讨论这种方法，不过预先指出这个种危险的方法。解决本性能的问题的stdio缓存机制却引发许多后勤问题，可能导致在应用程序中存在相当隐蔽的缺陷。究其原因在于stdio缓冲区的状态是不可见的。为便于深入解释，让我们考虑客户端和服务器之间的一个基于文本行的协议，而使用该协议的多个客户程序和服务器程序可能是在一段时间内先后实现的（这种情况其实相当普遍，举例来说，按照HTTP规范独立编写的Web浏览器程序和Web服务器程序就相当之多）。良好的防御型编程(defensive programming)技术要求这些程序不仅能够期望他们对端程序也遵循相同的网络协议，而且能够检查出未预期的网络数据传送并加以修正（恶意企图自然也被检查出来），这样使得网络应用能够从存在问题的网络数据传输中恢复，可能的话还会继续工作。为了提升性能而使用stido来缓存数据违背了这些目标，因为这样的应用进程在任何时刻都没有办法辨别stdio缓冲区是否持有未预期的数据。
 
+基于文本行的网络协议相当多，譬如SMTP、HTTP、FTP的控制链接协议以及finger等。因此针对文本行操作这一需求一再被提及。然而我们的建议是依照缓冲区而不是文本行的要求来考虑编程。编写从缓冲区中读取数据的代码，当期待一个文本行时，就查看缓冲区中是否含有那一行。
 
+图3-18给出了readline函数的一个较快速的版本，它使用自己的而不是stdio提供的缓冲机制。其中重要的是readline内部缓冲区的状态是暴露的，这使得调用者能够查看缓冲区中到底收到了什么。即使使用这个特性，readline仍可能存在问题，具体见6.3节。诸如select等系统函数仍不可能知道readline使用的内部缓冲区，因此编写不严谨的程序很可能发现自己在select上等待的数据早已接受到并存放在readline的缓冲区中了。由于这个原因，混合调用readn和readline不会像预期的那样工作，除非把readn修改成也检查该内部缓冲区。
+
+```
+#include "unp.h"
+
+static int read_cnt;
+static char *read_ptr;
+static char read_buf[MAXLINE];
+
+static ssize_t my_read(int fd, char *ptr)
+{
+	if (read_cnt <= 0) {
+		again:
+			if ((read_cnt = read(fd, read_buf, sizeof(read_buf))) < 0 {
+				if (errno == EINTR)
+					goto again;
+				return -1;
+			} else if (read_cnt == 0)
+				return 0;
+			read_ptr = read_buf;
+	}
+	
+	read_cnt--;
+	*ptr = *read_ptr++;
+	return 1;
+}
+
+ssize_t readline(int fd, void *vptr, size_t maxlen)
+{
+	size_t n, rc;
+	char c, *ptr;
+	
+	ptr = vptr;
+	for (n = 1; n < maxlen; n++) {
+		if ((rc = my_read(fd, &c)) == 1) {
+			*ptr++ = c;
+			if (c == '\n')
+				break;		/* newline is stored, like fgets() */
+		} else if (rc == 0) {
+			*ptr = 0;
+			return n - 1; /* EOF, n-1 bytes were read */
+		} else
+			return -1;	  /* error, errno set by read() */
+	}
+
+	*ptr = 0;				/* null terminate like fgets() */
+	return n;
+}
+
+ssize_t readlinebuf(void **vptrptr)
+{
+	if (read_cnt)
+		*vptrptr = read_ptr;
+	return read_cnt;
+}
+
+图3-18 （续）
+```
