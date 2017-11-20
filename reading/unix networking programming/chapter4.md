@@ -469,4 +469,6 @@ int getperrname(int sockfd, struct sockaddr *peeraddr, socklen_t *addrlen);
 
 * 在一个以通配IP地址调用调用bind的TCP服务器上，与某个客户端的连接一旦建立，getsockname就可以用于返回由内核赋予连接的本地IP地址。在这样的调用中，套接字描述符参数必须是已连接套接字的描述符，而不是监听套接字的描述符。
 
-* 
+* 当一个服务器是由调用过accpet的某个进程通过调用exec执行程序是，它能够获取客户端身份的唯一途径便是调用getpeername。 inetd fork并exec某个TCP服务器程序时就是如此情形，inetd调用accept返回两个值：已连接套接字描述符connfd，这是函数的返回值：客户端的IP地址及端口号，如图中标有“对端地址”的小方框提示。inetd随后调用fork，派生...
+
+略
