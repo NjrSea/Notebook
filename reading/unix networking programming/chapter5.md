@@ -60,4 +60,108 @@ int main(int argc, char **argv)
 
 19 ~ 24 fork为每个客户端派生一个处理它们的子进程。正如我们在4.8节讨论的那样，子进程关闭监听套接字，父进程关闭已连接套接字。
 
+## 5.3 TCP回射服务器程序：str_echo函数
+
+```
+#include "unp.h"
+
+void str_echo(int sockfd)
+{
+	ssize_t n;
+	char buf[MAXLINE];
+again:
+	while ((n = read(sockfd, buf, MAXLINE)) > 0)
+		Writen(sockfd, buf, n);
+
+	if (n < 0 && errno == EINTR)
+		goto again:
+	else if (n < 0)
+		err_sys("str_echo: read error");
+}
+```
+
+读入缓冲区并回射其中内容
+
+8~9 read函数从套接字读入数据，writen函数把其中内容太回射给客户端。如果关闭客户端连接，那么收到客户端的FIN将导致服务器子进程的read函数返回0，这又导致str_echo函数的返回，从而在图5-2终止子进程。
+
+这一版的新作者在图3-17和图3-18中修正了第二版对应的图3-16和图3-17中的一个错误，也就是在读入一些数据后再碰到EOF的情况下，Stevens先生把读入字符数少减了1；不过他们却在图5-3中过早地使用了不易文本行为中心的代码，而本书以文本行为中心的回射服务讨论中，隐含假设服务器也是面向文本行从套接字读取数据，以便进一步处理，尽管纯粹的回射服务没有这个需要。从这个意义上看，第2班中对应的图5-3更为确切，而尽管新作者修改了str_echo函数，在随后的章节中却又不加修改地沿用了Stevens先生的解释，可能会让读者不知所云。为此译者建议读者仍然采用第2版中对应的图5-3。
+
+## 5.4 TCP回射客户端程序：main函数
+
+图5-4所示为TCP客户端的main函数.
+
+```
+int main(int argc, char **argv)
+{
+	int sockfd;
+	struct sockaddr_in servaddr;
+	
+	if (argc != 2)
+		err_quit("usage: tcpcli <IPAddress>");
+	sockfd = Socket(AF_INET, SOCK_STREAM, 0);
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(SERV_PORT);
+	Inet_pton(AF_INET, argv[1], &servaddr.sin_addr);
+	Connect(sockfd, (SA *) &servaddr, sizeof(servaddr));
+	str_cli(stdin, sockfd);
+	exit(0);
+}
+
+创建套接字，填装网际网套接字地址结构
+
+9~13
+
+连接到服务器
+
+14~15
+
+
+
+## 5.5 TCP回射客户端程序：str_cli函数
+
+```
+#include "unp.h"
+
+void str_cli(FILE *fp, int sockfd)
+{
+	char sendline[MAXLINE], recvline[MAXLINE];
+	while (Fgets(sendline, MAXLINE, fp) != NULL) {
+		Writen(sockfd, snedline, strlen(sendline));
+		if (Readline(sockfd, recvline, MAXLINE) == 0)
+			err_quit("str_cli: server terminated permaturely");
+		Fputs(recvline, stdout);
+	}
+}
+```
+
+读入一行，写到服务器
+
+6~7 fgets读入一行文本，writen把该行发送给服务器。
+
+服务器读入回射行，写到标准输出
+
+8~10
+
+返回到main函数
+
+11~12
+
+## 5.6 正常启动
+
+尽管我们的TCP程序例子很小，然而对于我们弄清客户端和服务器如何启动，如何终止，更为重要的是当发生某些错误是将会发生什么，本例子却至关重要。只要高清这些边界条件以及它们与TCP/IP协议的相互作用，我们才能写出能够处理这些情况的程序。
+
+首先，我们在主机linux上后台启动服务器
+
+tcpserv01 &
+
+服务器启动后，它调用socket、bind、listen和accept，并阻塞与accept调用。在我们启动客户端之前，我们运行netstat程序来检查服务器监听套接字的状态。
+
+netstat -a
+
+Active Internet connections (servers and established)
+
+我们这里只给出了输出的第一行以及我们最关心的那一行。本命令列出系统中所有套接字的状态，可能有大量输出。我们必须指定-a标志以查看监听套接字。
+
+这个输出正式我们所期望的：有一个套接字处于LISTEN状态，它有通配的本地IP地址，本地端口为9877.netstat用星号“*”来表示一个为0的IP地址（INADDR_ANY，通配地址）或为0的端口号。
+
 
