@@ -1,0 +1,50 @@
+# Concurrency and OpenGL ES
+
+In computing, concurrency usually refers to executing tasks on more than one processor at the same time. By performing work in parallel, tasks complete sooner, and apps become more responsive to the user. A well-designed OpenGL ES app already exhibits a specific form of concurrency—concurrency between app processing on the CPU and OpenGL ES processing on the GPU. Many techniques introduced in OpenGL ES Design Guidelines are aimed specifically at creating OpenGL apps that exhibit great CPU-GPU parallelism. Designing a concurrent app means decomposing the work into subtasks and identifying which tasks can safely operate in parallel and which tasks must be executed sequentially—that is, which tasks are dependent on either resources used by other tasks or results returned from those tasks.
+
+Each process in iOS consists of one or more threads. A thread is a stream of execution that runs code for the process. Apple offers both traditional threads and a feature called Grand Central Dispatch (GCD). Using Grand Central Dispatch, you can decompose a task into subtasks without manually managing threads. GCD allocates threads based on the number of cores available on the device and automatically schedules tasks to those threads.
+
+At a higher level, Cocoa Touch offers NSOperation and NSOperationQueue to provide an Objective-C abstraction for creating and scheduling units of work.
+
+This chapter does not describe these technologies in detail. Before you consider how to add concurrency to your OpenGL ES app, consult Concurrency Programming Guide. If you plan to manage threads manually, also see Threading Programming Guide. Regardless of which technique you use, there are additional restrictions when calling OpenGL ES on multithreaded systems. This chapter helps you understand when multithreading improves your OpenGL ES app’s performance, the restrictions OpenGL ES places on multithreaded app, and common design strategies you might use to implement concurrency in an OpenGL ES app.
+
+## Deciding Whether You Can Benefit from Concurrency
+
+Create a multithreaded app requires significant effort in the design, implementation, and testing of your app. Threads also add complexity and overhead. Your app need to copy data so that it can be handed to a worker thread, or multiple threads may need to synchronize access to the same resources. Before you attempt to implement concurrency in an OpenGL ES app, optimize your OpenGL ES code in a single-threaded environment using the techniques described in OpenGL ES Design Guidelines. Foucus on achieving great CPU-GPU parallelism first and then assess whether concurrent programming can provide additional performance.
+
+A good candidate has either or both of the following characteristics:
+
+* The app performs many tasks on the CPU that are independent of OpenGL ES rendering. Games, for example, simulate the game world, calculate artificial intelligence from computer-controlled opponents, and play sound. You can exploit parallelism in this scenario because many of these tasks are not dependent on your OpenGL ES drawing code.
+
+* Profilling your app has shown that your OpenGL ES rendering code spends a lot of time in the CPU. In this scenario, the GPU is idle because your app is incapble of feeding it commands fast enough. If your CPU-bound code has already been optimized, you may be able to improve its perfomance further by splitting the work into tasks that execute concurrently.
+
+If your app is blocked waiting for the GPU, and has no work it can perform in parallel with its OpenGL ES drawing, then it is not a good candidate for concurrency. If the CPU and GPU are both idle, then your OpenGL ES needs are probably simple enough that no further tuning is needed.
+
+## OpenGL ES restricts Each Context to a Single Thread
+
+Each thread in iOS has a single current OpenGL ES rendering context. Every time your app calls an OpenGL ES function, OpenGL ES implicitly looks up the context associated with the current thread and modifies the state or objects associated with that context.
+
+OpenGL ES is not reentrant. If you modify the same context from multiple threads simultaneously, the results are unpredictable. Your app might crash or it might render improperly. If for some reason you decide to set more than one thread to target the same context, then you must synchronize threads by placing a mutex around all OpenGL ES calls to the context. OpenGL ES commands that block--such as glFinish--do not synchronize threads.
+
+GCD and NSOperationQueue objects can execute your tasks on a thread of their choosing. They may create a thread specifically for that task, or they may reuse and existing thread. But in either case, you cannot guarantee which thread executes the task. For an OpenGL ES app, that means:
+
+* Each task must set the context before executing any OpenGL ES commands.
+
+* Two tasks that access the same context may never execute simultaneously.
+
+* Each task should clear the thread's context before exiting.
+
+## Strategies for implementing Concurrency in OpenGL ES Apps
+
+A concurrent OpenGL ES app should focus on CPU parallelism so that OpenGL ES can provide more work to the GPU. Here are a few strategies for implementing concurrency in an OpenGL ES app:
+
+* Decompose your app into OpenGL ES and non-OpenGL ES tasks that can execute concurrently. Your OpenGL ES drawing code executes as a single task, so it still executes in a single thread. This strategy works best when your app has other tasks that requie significant CPU processing.
+
+* If performance profilling reveals that your application spends a lot of CPU time inside OpenGL, move some of that processing to another thread by enabling multithreading for your OpenGL ES context. The advantage is simplicity; enabling multithreading takes a single line of code. See Multithreaded OpenGL ES.
+
+* If your app spends a lot of CPU time preparing data to send to OpenGL ES, devided the work between tasks that prepare rendering data and tasks that submit rendering commands to OpenGL ES. See Perform OpenGL ES Computations in a Worker Task.
+
+* If your app has multiple scenes it can render simultaneously or work it can perform in multiple contexts, it can create multiple tasks, with one OpenGLES context per task. If the contexts need access to the same art assets, use a sharegroup to share OpenGL ES objects between the contexts. See Use Multiple OpenGL ES Contexts.
+
+
+
