@@ -46,5 +46,58 @@ A concurrent OpenGL ES app should focus on CPU parallelism so that OpenGL ES can
 
 * If your app has multiple scenes it can render simultaneously or work it can perform in multiple contexts, it can create multiple tasks, with one OpenGLES context per task. If the contexts need access to the same art assets, use a sharegroup to share OpenGL ES objects between the contexts. See Use Multiple OpenGL ES Contexts.
 
+## Multithreaded OpenGL ES
 
+Whenever your application calls an OpenGL ES function, OpenGL ES processes the parameters to put them in a format that the hardware understands. The time required to process these commands varies depending on whether the inputs are already in a hardware-friendly format, but there is always overhead in preparing commands for the hardware. 
 
+If your application spends a lot of time performing calculations inside OpenGL ES, and you've alreay taken steps to pick ideal data formats, your application might gain an additional benefit by enabling multithreading for the OpenGL ES context. A multithreaded OpenGL ES context automatically creates a worker thread and transfers some of its calculations to that thread. On a multicore device, enabling multithreading allows internal OpenGL ES calculations performed on the CPU to act in parallel with your application, improving performance. Synchronizing functions continue to block the calling thread.
+
+To enable OpenGL ES multithreading, set the value of the multiTreaded property of your EAGLContext object to YES.
+
+```
+Note: Enabling or disabling multithreaded execution causes OpenGL ES to flush previous commands and incurs the overhead of setting up the additional thread. Enabl or disable multithreading in an initializtion function rahter than in thrhe rendering loop.
+```
+
+Enabling multithreading means OpenGL ES must copy parameters to transmit them to the worker thread. Because of this overhead, always test your application with and without multithreading enabled to determine whether it provides a substantial performance imporvement. You can minimize this overhead by implementing your own strategy for x OpenGL ES use in a multithreaded app, as described in the remainder of this chapter.
+
+## Perform OpenGL ES Computations in a Worker Task
+
+Some app perform lots of calculations on their data before passing the data down to OpenGL ES. For example, the app might create new geometry or animate existing geometry. Where possible, such calculations should be performed inside OpenGL ES. This takes advantage of the greater parallelism available inside the GPU, and reduces the overhead of copying results between your app and OpenGL ES.
+
+The approach described in Figure 6-6 alternates between updating OpenGL ES objects and excuting rendering commands that use those objects. OpenGL ES renders on the GPU in parallel with your app's updates running on the CPU. If the calculations performed on the CPU take more processing time than those on the GPU, then the GPU spends more time idle. In this situation, you may be able to take advantage of parallelism on systems with multiple CPUs. Split your OpenGL ES rendering code into  separate calculation and processing tasks, and run them in parallel. One task produces data that is consumed by the second and submitted to OpenGL.
+
+For best performance, avoid copying data between tasks. Rather than calculating the data in one task and copying it into a vertex buffer object in the other, map the vertex buffer object in the setup code and hand the pointer directly to the worker task.
+
+If you can further decompose the modifications task into subtasks, you may see better benefits. For example, assume two or more vertex buffer objects, each of which needs to be updated before submitting drawing commands. Each can be recalculated independently of the others. In this scenarion, the modifications to each buffer becomes an operation, using an NSOperationQueue object to manage the work:
+
+1) Set the current context
+
+2) Map the first buffer
+
+3) Create an NSOperation object whose task is to fill that buffer.
+
+4) Queue that operation on the operation queue
+
+5) Perform steps 2 through 4 for the other buffers
+
+6) Call waitUntilAllOperationsAreFinished on the operation queue
+
+7) Unmap the buffers
+
+8 Execute rendering commaneds
+
+## Use Multiple OpenGL ES Contexts
+#
+#One common approach for using multiple contexts is to have one context that updates OpenGL ES objects while the other consumes those resources, with each context running on a separate thread. Because each context runs on a separate thread, its actions are rarely blocked by the other context. To implement this, your app would create two contexts and two threads; each thread controls on context. Further, any OpenGL ES objects your app intends to update on the second thread must be double buffered; a consuming thread may not access an OpenGL ES object while the other thread is modifying it. The process of synchronizing the changes between the contexts if described in detail in An EAGL Sharegroup Manages OpenGL ES Objects for the Context.
+
+The GLKTextureLoader class implements this strategy to provide asynchronous loading of texture data.
+
+## Guidelines for Threading OpenGL ES Apps
+
+Follow these guidelines to ensure successful threading in an app that uses OpenGL ES:
+
+* Use only one thread per context. OpenGL ES command for a specific context are not thread safe. Never have more than one tread accessing a single context simultaneously.
+
+* When using GCD, use a dedicated serial queue to dispatch commands to OpenGL ES; this can be used to replace the conventional mutex pattern.
+
+* Keep track of current context. When switching threads it is easy to switch contexts inadvertently, which casues unforeseen effects on the execution of graphic commands. You must set a current context when switching to a newly created thread and clear the current context before leaving the thread.
