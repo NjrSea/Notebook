@@ -1,0 +1,86 @@
+" Vundle
+set nocompatible              " 去除VI一致性,必须
+filetype off                  " 必须
+
+set rtp+=~/.vim/bundle/Vundle.vim
+call vundle#begin()
+
+Plugin 'VundleVim/Vundle.vim'
+Plugin 'vim-airline/vim-airline'
+Plugin 'vim-airline/vim-airline-themes'
+Plugin 'scrooloose/nerdtree'
+Bundle 'ctrlpvim/ctrlp.vim'
+
+call vundle#end()            " 必须
+
+" Vim configuration
+
+filetype plugin indent on    " 必须 加载vim自带和插件相应的语法和文件类型相关脚本 
+syntax enable
+colorscheme solarized
+let g:solarized_termcolors=256
+
+if has('gui_running')
+    set background=light
+else
+    set background=dark
+endif
+set tabstop=4
+set softtabstop=4
+
+set number
+set showcmd
+
+set cursorcolumn
+set cursorline
+
+set showmatch
+set wildmenu
+
+set mouse=a
+
+" Nerd Tree
+
+let g:NERDTreeIndicatorMapCustom = {
+    \ "Modified"  : "✹",
+    \ "Staged"    : "✚",
+    \ "Untracked" : "✭",
+    \ "Renamed"   : "➜",
+    \ "Unmerged"  : "═",
+    \ "Deleted"   : "✖",
+    \ "Dirty"     : "✗",
+    \ "Clean"     : "✔︎",
+    \ "Unknown"   : "?"
+    \ }
+
+" 关闭NERDTree快捷键
+map <F2> :NERDTreeToggle<CR>
+" 显示行号
+let NERDTreeShowLineNumbers=1
+let NERDTreeAutoCenter=1
+" 是否显示隐藏文件
+let NERDTreeShowHidden=1
+" 设置宽度
+let NERDTreeWinSize=31
+" 在终端启动vim时，共享NERDTree
+let g:nerdtree_tabs_open_on_console_startup=1
+" 忽略一下文件的显示
+let NERDTreeIgnore=['\.pyc','\~$','\.swp','\.DS_Store']
+" 显示书签列表
+let NERDTreeShowBookmarks=1
+
+" Ctrlp
+
+let g:ctrlp_map = '<c-p>'
+let g:ctrlp_cmd = 'CtrlP'
+map <leader>f :CtrlPMRU<CR>
+let g:ctrlp_custom_ignore = {
+    \ 'dir':  '\v[\/]\.(git|hg|svn|rvm)$',
+    \ 'file': '\v\.(exe|so|dll|zip|tar|tar.gz|pyc)$',
+    \ }
+let g:ctrlp_working_path_mode=0
+let g:ctrlp_match_window_bottom=1
+let g:ctrlp_max_height=15
+let g:ctrlp_match_window_reversed=0
+let g:ctrlp_mruf_max=500
+let g:ctrlp_follow_symlinks=1
