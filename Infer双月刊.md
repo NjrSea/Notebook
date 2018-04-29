@@ -1,19 +1,57 @@
 ## 背景
-随着抖音项目的发展，iOS工程规模、开发人数也随之急剧增长。代码质量把控变得越来越重要,
+随着抖音项目的发展，iOS工程规模、开发人数也随之急剧增长。随着去年公司对Musical.ly的收购，Musical.ly的code base也随之迁移到了抖音，目前代码库承载的是抖音、Tik Tok和Musical.ly三款应用和北京、上海两地30多人的团队开发工作。如何提高工程效率和工程质量成为我们团队的一个很重要的问题，比如提交代码导致编译不通过的问题，这可能会同时影响开发效率、CI打包和测试进度；或者是有问题的代码没有在code review、测试、灰度中发现。针对这些问题，我们引入了GitLab CI机制。开发人员提交代码到GitLab，首先会通过一些列的处理，称之为[Pipeline](https://docs.gitlab.com/ee/ci/pipelines.html)，如果提交的代码未通过Pipeline，那么代码就不允许自动合入。比如提交的代码在Tik Tok上有编译问题而在其他两个APP编译通过，则构建步骤失败，这次提交代码的Pipeline执行结束，并通过lark发布CI Pipeline执行结果信息，通过各种手段提前发现问题，提高了团队整体的工作效率。除了通过构建发现编译错误之外，在CI的nightly build的中还有一个十分重要的环节，那就是静态分析。
+
+那么什么是静态分析呢？
+
+静态分析是指在不运行计算机程序的条件下，进行程序分析的方法。有些程序分析需要在程序运行时才能进行，这种程序分析称为动态程序分析。大部分的静态程序分析的对象是针对特定版本的源代码，也有些静态程序分析的对象是目标代码。静态程序分析一词多半是指配合静态程序分析工具进行的分析，人工进行的分析一般称为程序理解或代码审查。
+
+静态程序分析的复杂程度依所使用的工具而异，简单的只考虑个别语句及声明的行为，复杂的可以分析程序的完整源代码。不同静态程序分析技术对分析得到的信息的用途也有所不同，简单的可以是高亮标识可能存在的代码错误（如lint），复杂的可以是形式化方法，也就是用数学的方式证明程序的某些行为匹配其设计规约。
+
+目前在iOS工程中常用的静态分析工具有Clang Static Analyzer，OCLint和Infer：
+
+```
+***Clang Static Analyzer***
+
+Clang Static Analyzer既XCode中集成的Analyze分析工具，可以通过Xcode—>Product—>Analyze找到。
 
 
-因此抖音iOS team引入了GitLab CI，在[Pipeline](https://docs.gitlab.com/ee/ci/pipelines.html)的一个环节引入代码静态分析，静态分析的工具就是今天的主角——Infer.
+***OCLint***
 
-以下是Infer官网的介绍
-> Facebook 的 Infer 是一个静态分析工具。Infer 可以分析 Objective-C， Java 或者 C 代码，报告潜在的问题。
-> 任何人都可以使用 Infer 检测应用，这可以将那些严重的 bug 扼杀在发布之前，同时防止应用崩溃和性能低下。 
+OCLint是一款开源的静态分析工具，用于C，C++和Objective-C代码的静态分析。
+
+***Infer***
+
+Facebook 的 Infer 是一个静态分析工具。Infer 可以分析 Objective-C， Java 或者 C 代码，报告潜在的问题，同时防止应用崩溃和性能低下。 
+```
+
+经过调研，我总结了OCLint和Infer各自的优缺点：
+
+***OCLint***
+
+* 优点
+	* 接入简单
+	* 定制规则成本低
+	* 分析结果以html文件形式输出，可读性强
+
+* 缺点
+	* 捕捉bug的类型有限
+	* 开源社区不活跃
+
+***Infer***
+
+* 优点
+	* 捕捉bug类型多
+	* 效率高，规模大，几分钟能扫描数千行代码
+	* 分解分析，整合输出结果（能将代码分解，小范围分析后再将结果整合在一起，兼顾分析的深度和速度）
+	* 开源社区氛围好，项目维护人员响应问题速度快
+
+* 缺点
+	* 接入难度高
+	* 规则定制工作量大
+	* 分析结果没有友好的格式输出，需要自行开发
 
 
-### 
-
-### 选哪个
-infer和oclint对比
-
+出于对分析速度和质量的考虑，最终选择在项目中使用Infer作为静态分析工具。
 
 
 ## Infer工作原理
@@ -24,12 +62,12 @@ infer和oclint对比
 
 Infer捕获编译命令，将文件翻译成Infer内部的中间语言。
 
-这种翻译和编译类似，Infer从编译过程获取信息，并运行翻译。这就是我们调用Infer时带上编译命令的原因了，比如：```infer -- clang -c file.c```, ```infer - javac File.java```。结果就是文件照常编译，同时被Infer翻译成中间语言，留作第二阶段处理。特别注意的就是，如果没有文件被编译，那么也没有任何文件被分析。
+这种翻译和编译类似，Infer从编译过程获取信息，并运行翻译。这就是我们调用Infer时带上编译命令的原因了，比如：```infer -- clang -c file.c```, ```infer -- xocdebuild File.m ```。结果就是文件照常编译，同时被Infer翻译成中间语言，留作第二阶段处理。特别注意的就是，如果没有文件被编译，那么也没有任何文件被分析。
 
 Infer把中间文件存储在结果文件夹中，一般来说，这个文件夹会在Infer的目录下创建，命名是infer-out/。当然，你也可以通过-o选项来自定义文件夹名字：
 
 ```
-infer -o /tmp/out -- javac test.java
+infer -o /tmp/out -- xcodebuild test.m
 ```
 
 ### 2.分析阶段
@@ -49,7 +87,7 @@ infer -o /tmp/out -- javac test.java
 
 ## 错误类型
 
-Infer可以检测潜在的错误类型有很多种，下面我看一下在iOS开发中常见的bug类型。
+Infer可以检测潜在的错误类型有很多种，下面我看一下在iOS开发中常见的错误类型。
 
 #### Resource leak(资源泄漏)
 
@@ -58,7 +96,7 @@ resources通常指文件、socket、连接等用后需要关闭的资源。这�
 示例：
 
 ```
--(void) resource_leak_bug {
+- (void)resource_leak_bug {
     FILE *fp;
     fp=fopen("c:\\test.txt", "r"); // file opened and not closed.
 }
@@ -71,13 +109,13 @@ resources通常指文件、socket、连接等用后需要关闭的资源。这�
 示例：
 
 ```
--(void) memory_leak_bug {
+- (void)memory_leak_bug {
     struct Person *p = malloc(sizeof(struct Person));
 }
 ```
 
 ```
--(void) memory_leak_bug_cf {
+- (void)memory_leak_bug_cf {
     CGPathRef shadowPath = CGPathCreateWithRect(self.inputView.bounds, NULL); //object created and not released.
 }
 ```
@@ -88,7 +126,7 @@ iOS开发众所周知的bug，在此不再赘述。
 
 #### Null Dereference（空指针解引用）
 
-infer会找到隐藏在C、Objective-C和Java代码中的空指针解引用。在以上三种语言中对空指针进行解引用会导致crash。
+Infer会找到隐藏在C、Objective-C和Java代码中的空指针解引用。在以上三种语言中对空指针进行解引用会导致crash。
 
 示例:
 
@@ -112,11 +150,11 @@ int null_pointer_interproc() {
 objective-c
 
 ```
-- (void) foo:(void (^)())callback {
+- (void)foo:(void (^)())callback {
     callback();
 }
 
-- (void) bar {
+- (void)bar {
     [self foo:nil]; //crash
 }
 ```
@@ -128,7 +166,7 @@ objective-c
 示例：
 
 ```
- -(int) foo:(A* a) {
+ - (int)foo:(A* a) {
       B b* = [a foo]; // sending a message with receiver nil returns nil
       return b->x; // dereferencing b, potential NPE if you pass nil as the argument a.
   }
@@ -137,16 +175,16 @@ objective-c
 或者参数是一个block：
 
 ```
-  -(void) foo:(void (^)(BOOL))block {
+ - (void)foo:(void (^)(BOOL))block {
       block(YES); // calling a nil block will cause a crash.
-   }
+ }
 ```
 
-一般的解决方案是添加一个非空的判断，或者开发者能确定这个方法不会传入空参数。当参数确认不会为空时，可以使用```nonnull ```修饰参数类型，这样infer就不会认为这是一段有Parameter not null checked （参数未做非空检查）问题的代码。
+一般的解决方案是添加一个非空的判断，或者开发者能确定这个方法不会传入空参数。当参数确认不会为空时，可以使用```nonnull ```修饰参数类型，这样infer就不会认为这是一段有问题的代码。
 
 #### Bad pointer comparison（错误指针比较）
 
-infer只在objective-c代码中检查这类错误，把这类问题视为警告。在iOS中，有些类会对原有的值进行包装，比如```NSNumber```, 当代码中的```if```语句是用一个包装后的类型进行布尔运算做条件时，这个错误会被检测出来。试想以下代码：
+Infer只在objective-c代码中检查这类错误，把这类问题视为警告。在iOS中，有些类会对原有的值进行包装，比如```NSNumber```, 当代码中的```if```语句是用一个包装后的类型进行布尔运算做条件时，Infer就会报告这样的错误。试想以下代码：
 
 ```
 void foo(NSNumber * n) {
@@ -162,13 +200,13 @@ Infer可以检查的错误类型还有很多，这里就不一一列举了。
 ## Infer接入
 
 ### 安装
-安装xcpretty, xcpretty是一款格式化输出xcodebuild编译信息的工具
+安装xcpretty, xcpretty是一款格式化输出xcodebuild编译信息的工具，Infer会用到
 
 ```
 gem install xcpretty
 ```
 
-安装infer
+安装Infer
 
 ```
 brew reinstall infer
@@ -275,14 +313,6 @@ site here
 
 ```
 
-分析报错信息后，删除了NHAccountPlatformQQ.m的多余头文件(```TencentOpenAPI/TencentApiInterface.h```)引入，再次尝试，编译通过，并进行静态分析，分析结果输出到了infer-out文件夹。
+分析报错信息后，删除了.m文件中的多余头文件引入，再次尝试，编译通过，并进行静态分析，分析结果输出到了infer-out文件夹。
 
-
-#### Swift?
-
-正如infer的维护者所说，infer目前尚未支持Swift。
-
->No, Swift is not supported at the moment. We may work on it in the future.
-
-// TODO： 统一写法 Infer/infer 首字母大小写 ：: 等 代码片段格式 。. ，,
-是否可以检查swift？
+跑通整个分析流程后，将Infer加入CI流程，至此，抖音项目的接入完成。
