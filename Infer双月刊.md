@@ -19,6 +19,7 @@ Clang Static Analyzer既XCode中集成的Analyze分析工具，可以通过Xcode
 
 OCLint是一款开源的静态分析工具，用于C，C++和Objective-C代码的静态分析。
 
+
 ***Infer***
 
 Facebook 的 Infer 是一个静态分析工具。Infer 可以分析 Objective-C， Java 或者 C 代码，报告潜在的问题，同时防止应用崩溃和性能低下。 
@@ -85,7 +86,7 @@ infer -o /tmp/out -- xcodebuild test.m
 在结果文件夹中，同时还有一个csv文件report.csv，这里包含了所有Infer产生的信息，包括：错误、警告和信息。
 
 
-## 错误类型
+## 错误类型示例
 
 Infer可以检测潜在的错误类型有很多种，下面我看一下在iOS开发中常见的错误类型。
 
